@@ -52,7 +52,7 @@ route_layer make_route_layer(int batch, int n, int *input_layers, int *input_siz
 
     l.weights_gpu = cuda_make_array(l.weights, l.out_c*l.out_c);
     l.weight_updates_gpu = cuda_make_array(l.weight_updates, l.out_c*l.out_c);
-    l.delta_gpu =  cuda_make_array(l.delta, l.out_c);
+    l.delta_gpu =  cuda_make_array(l.delta, outputs);
     l.delta_channel_gpu = cuda_make_array(l.delta_channel, l.out_c);
     l.output_gpu = cuda_make_array(l.output, outputs*batch);
     l.channel_avg_gpu = cuda_make_array(l.channel_avg, out_c_insgesamt*batch);

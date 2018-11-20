@@ -131,7 +131,7 @@ extern "C" void backward_route_layer_gpu(route_layer l, network net)
     if(l.n > 1)
     {
 		//here is not l.delta_gpu, should change it
-		constrain_gpu(l.out_w*l.out_h*l.batch, 1, l.delta_gpu, 1);
+		constrain_gpu(l.out_w*l.out_h*l.out_c*l.batch, 1, l.delta_gpu, 1);
 		size_t n = l.out_c*l.batch;
 		backward_route_layer_kernel_step1<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.delta_gpu, l.delta_channel_gpu);
 		//activation backward
