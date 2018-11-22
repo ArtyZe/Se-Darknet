@@ -22,7 +22,7 @@ __global__ void backward_route_layer_kernel_step2(int n, int w, int h, int c, fl
     int out_index = (k + c*b);
     for(i = 0; i < w*h; ++i){
         int in_index = i + h*w*(k + b*c);
-        in_delta[in_index] /= channel_avg[out_index];
+        in_delta[in_index] *= channel_avg[out_index];
     }
 }
 
