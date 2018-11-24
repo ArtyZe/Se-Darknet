@@ -13,7 +13,7 @@
 
 route_layer make_route_layer(int batch, int n, int *input_layers, int *input_sizes, int *out_chnel, int w, int h)
 {
-    fprintf(stderr,"route ");
+	fprintf(stderr,"route ");
     route_layer l = {0};
     l.type = ROUTE;
     l.batch = batch;
@@ -29,10 +29,11 @@ route_layer make_route_layer(int batch, int n, int *input_layers, int *input_siz
         out_c_insgesamt += out_chnel[i];
     }
     //outputs = input_sizes;
-    fprintf(stderr, "\n");
+
     l.outputs = outputs;
     l.inputs = outputs;
     l.delta =  calloc(outputs*batch, sizeof(float));
+    l.delta_insert =  calloc(outputs*batch, sizeof(float));
     l.output = calloc(outputs*batch, sizeof(float));
     l.out_c = out_c_insgesamt;
     l.delta_channel = calloc(l.out_c, sizeof(float));
@@ -44,20 +45,34 @@ route_layer make_route_layer(int batch, int n, int *input_layers, int *input_siz
     l.forward = forward_route_layer;
     l.backward = backward_route_layer;
     l.weights = calloc(l.out_c*l.out_c, sizeof(float));
+	l.biases = calloc(l.out_c, sizeof(float));
     l.weight_updates = calloc(l.out_c*l.out_c, sizeof(float));
+	l.bias_updates = calloc(l.out_c, sizeof(float));
+	float scale = sqrt(2./l.out_c);
+    //for(i = 0; i < l.out_c*l.out_c; ++i){
+        //l.weights[i] = scale*rand_uniform(-1, 1);
+    //}
+		
+    //for(i = 0; i < l.out_c; ++i){
+        //l.biases[i] = 0;
+    //}
     #ifdef GPU
     l.forward_gpu = forward_route_layer_gpu;
     l.backward_gpu = backward_route_layer_gpu;
     l.update_gpu = update_route_layer_gpu;
 
     l.weights_gpu = cuda_make_array(l.weights, l.out_c*l.out_c);
+	l.biases_gpu = cuda_make_array(l.biases, l.out_c);
     l.weight_updates_gpu = cuda_make_array(l.weight_updates, l.out_c*l.out_c);
+	l.bias_updates_gpu = cuda_make_array(l.bias_updates, l.out_c);
     l.delta_gpu =  cuda_make_array(l.delta, outputs);
     l.delta_channel_gpu = cuda_make_array(l.delta_channel, l.out_c);
+    l.delta_channel_insert_gpu = cuda_make_array(l.delta_insert, outputs*batch);
     l.output_gpu = cuda_make_array(l.output, outputs*batch);
     l.channel_avg_gpu = cuda_make_array(l.channel_avg, out_c_insgesamt*batch);
     l.channel_avg_insert_gpu = cuda_make_array(l.channel_avg_insert, out_c_insgesamt*batch);
     #endif
+	fprintf(stderr, "\n");
     return l;
 }
 
@@ -196,13 +211,17 @@ void backward_route_layer(const route_layer l, network net)
 void pull_route_layer(layer l)
 {
     cuda_pull_array(l.weights_gpu, l.weights, l.out_c*l.out_c);
+	cuda_pull_array(l.biases_gpu, l.biases, l.out_c);
     cuda_pull_array(l.weight_updates_gpu, l.weight_updates, l.out_c*l.out_c);
+	cuda_pull_array(l.bias_updates_gpu, l.bias_updates, l.out_c);
 }
 
 void push_route_layer(layer l)
 {
     cuda_push_array(l.weights_gpu, l.weights, l.out_c*l.out_c);
+	cuda_push_array(l.biases_gpu, l.biases, l.out_c);
     cuda_push_array(l.weight_updates_gpu, l.weight_updates, l.out_c*l.out_c);
+	cuda_push_array(l.bias_updates_gpu, l.bias_updates, l.out_c);
 }   
 
 

@@ -245,6 +245,7 @@ struct layer{
     float * norms;
     float * channel_avg;
     float * delta_channel;
+    float * delta_insert;
 
     float * spatial_mean;
     float * mean;
@@ -365,6 +366,7 @@ struct layer{
     float *channel_avg_insert;
     float *channel_avg_insert_gpu;
     float *delta_channel_gpu;
+    float *delta_channel_insert_gpu;
 
     float * combine_gpu;
     float * combine_delta_gpu;

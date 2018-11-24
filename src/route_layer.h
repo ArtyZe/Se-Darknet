@@ -7,6 +7,7 @@
 #include "blas.h"
 #include "gemm.h"
 #include "activation_layer.h"
+#include "avgpool_layer.h"
 
 typedef layer route_layer;
 
@@ -20,5 +21,6 @@ void forward_route_layer_gpu(route_layer l, network net);
 void backward_route_layer_gpu(route_layer l, network net);
 void update_route_layer_gpu(layer l, update_args a);
 #endif
-
+void pull_route_layer(layer l);
+void push_route_layer(layer l);
 #endif

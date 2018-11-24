@@ -8,8 +8,8 @@ extern "C" {
 }
 
 
-
-__global__ void backward_route_layer_kernel_step2(int n, int w, int h, int c, float *in_delta, float *channel_avg)
+												
+__global__ void backward_route_layer_kernel_step2(int n, int w, int h, int c, float *in_delta, float *channel_avg_insert, float *out_delta)
 {
     int id = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;
     if(id >= n) return;
@@ -22,29 +22,31 @@ __global__ void backward_route_layer_kernel_step2(int n, int w, int h, int c, fl
     int out_index = (k + c*b);
     for(i = 0; i < w*h; ++i){
         int in_index = i + h*w*(k + b*c);
-        in_delta[in_index] *= channel_avg[out_index];
+        out_delta[in_index] = in_delta[in_index] * channel_avg_insert[out_index];
     }
 }
-
-__global__ void backward_route_layer_kernel_step1(int n, int w, int h, int c, float *in_delta, float *out_delta)
+                                                  
+__global__ void backward_route_layer_kernel_step1(int n, int w, int h, int c, float *in_delta, float *out_delta, float *output)
 {
     int id = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;
     if(id >= n) return;
     
-    int k = 0;
+    int k;
     int p = id% c;
     id /= c;
     int b = id;
     
 	int out_index = (p + c*b);
+	out_delta[out_index] = 0;
 	//calculate delta in weights way
 	for(k = 0; k < w*h; ++k){
 		int in_index = k + h*w*(p + b*c);
-		out_delta[out_index] += in_delta[in_index];
+		out_delta[out_index] += in_delta[in_index]*output[in_index];
 	}
+	//if(p == 10) printf("the delta value is %f\n", out_delta[10]);
 }
 
-__global__ void forward_route_layer_kernel_step1(int n, int w, int h, int c, float *input, float *channel_avg, float* channel_avg_insert, float* weights)
+__global__ void forward_route_layer_kernel_step1(int n, int w, int h, int c, float *input, float *channel_avg)
 {
     int id = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;
     if(id >= n) return;
@@ -61,16 +63,17 @@ __global__ void forward_route_layer_kernel_step1(int n, int w, int h, int c, flo
     int i;
     int out_index = (k + c*b);
     channel_avg[out_index] = 0;
-    for(i = 0; i < w*h; ++i){
+    for(i = 0; i < w*h; i++){
         int in_index = i + h*w*(k + b*c);
         channel_avg[out_index] += input[in_index];
-        //printf("the output value is %f\n", input[in_index]);
+        //if(i %= 100) printf("the output value is %f\n", input[in_index]);
     }
     channel_avg[out_index] /= w*h;
+    //if(k %= 100) printf("the channel avg value is %f\n", channel_avg[10]);
 
 }
 
-__global__ void forward_route_layer_kernel_step2(int n, int w, int h, int c, float *output, float *channel_avg, float* channel_avg_insert, float* weights)
+__global__ void forward_route_layer_kernel_step2(int n, int w, int h, int c, float *output,  float* channel_avg_insert)
 {
     int id = (blockIdx.x + blockIdx.y*gridDim.x) * blockDim.x + threadIdx.x;
     if(id >= n) return;
@@ -107,19 +110,20 @@ extern "C" void forward_route_layer_gpu(route_layer l, network net)
     if(l.n > 1)
 	{
 		size_t n = l.out_c*l.batch;
-		forward_route_layer_kernel_step1<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.output_gpu, l.channel_avg_gpu, l.channel_avg_insert_gpu, l.weights_gpu);
+		forward_route_layer_kernel_step1<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.output_gpu, l.channel_avg_gpu);
+		//forward_avgpool_layer_kernel<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.output_gpu, l.channel_avg_gpu);
 		check_error(cudaPeekAtLastError());
 		
 		//connection layer
 		gemm_gpu(0, 1, 1, l.out_c, l.out_c, 1, l.channel_avg_gpu, l.out_c, l.weights_gpu, l.out_c, 1, l.channel_avg_insert_gpu, l.out_c);
-    
+		add_bias_gpu(l.channel_avg_insert_gpu, l.biases_gpu, l.batch, l.out_c, 1);
 		//selu layer
 		activate_array_gpu(l.channel_avg_insert_gpu, l.out_c, SELU);
     
 		//connection layer
 		//gemm_gpu(0, 1, 1, c, c/16, 1, channel_avg_insert, c/16, weights, c, 1, channel_avg_insert, c/16);
 		//printf("the output channel is %d\n", l.out_c);
-		forward_route_layer_kernel_step2<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.output_gpu, l.channel_avg_gpu, l.channel_avg_insert_gpu, l.weights_gpu);		
+		forward_route_layer_kernel_step2<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.output_gpu, l.channel_avg_insert_gpu);		
 		
 		//printf("finished to forward route layer\n");	
 	}
@@ -130,16 +134,24 @@ extern "C" void backward_route_layer_gpu(route_layer l, network net)
     //printf("start to backward route layer\n");
     if(l.n > 1)
     {
-		//here is not l.delta_gpu, should change it
 		constrain_gpu(l.out_w*l.out_h*l.out_c*l.batch, 1, l.delta_gpu, 1);
 		size_t n = l.out_c*l.batch;
-		backward_route_layer_kernel_step1<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.delta_gpu, l.delta_channel_gpu);
-		//activation backward
-		gradient_array_gpu(l.channel_avg_insert_gpu, l.out_c*l.batch, SELU, l.delta_channel_gpu);
-		//gemm backward
-		gemm_gpu(1, 0, l.out_c, l.out_c, 1, 1, l.delta_channel_gpu, l.out_c, l.channel_avg_gpu, l.out_c, 1,l.weight_updates_gpu, l.out_c);
 		
-		backward_route_layer_kernel_step2<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.delta_gpu, l.channel_avg_gpu);
+		backward_route_layer_kernel_step2<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.delta_gpu, l.channel_avg_insert_gpu, l.delta_channel_insert_gpu);
+		
+		backward_route_layer_kernel_step1<<<cuda_gridsize(n), BLOCK>>>(n, l.out_w, l.out_h, l.out_c, l.delta_gpu, l.delta_channel_gpu, l.output_gpu);
+		
+		gradient_array_gpu(l.channel_avg_insert_gpu, l.out_c*l.batch, SELU, l.delta_channel_gpu);
+
+		backward_bias_gpu(l.bias_updates_gpu, l.delta_channel_gpu, l.batch, l.out_c, 1);
+
+		int m = l.out_c;
+		int k = l.batch;
+		int p = l.out_c;
+		float * a = l.delta_channel_gpu;
+		float * b = l.channel_avg_gpu;
+		float * c = l.weight_updates_gpu;
+		gemm_gpu(1,0,m,p,k,1,a,m,b,p,1,c,p);
 		check_error(cudaPeekAtLastError());
 	}
     
@@ -150,7 +162,7 @@ extern "C" void backward_route_layer_gpu(route_layer l, network net)
         float *delta = net.layers[index].delta_gpu;
         int input_size = l.input_sizes[i];
         for(j = 0; j < l.batch; ++j){
-            axpy_gpu(input_size, 1, l.delta_gpu + offset + j*l.outputs, 1, delta + j*input_size, 1);
+            axpy_gpu(input_size, 1, l.delta_channel_insert_gpu + offset + j*l.outputs, 1, delta + j*input_size, 1);
         }
         offset += input_size;
     }
@@ -173,7 +185,8 @@ extern "C" void update_route_layer_gpu(layer l, update_args a)
             adam_update_gpu(l.scales_gpu, l.scale_updates_gpu, l.scale_m_gpu, l.scale_v_gpu, a.B1, a.B2, a.eps, decay, learning_rate, l.outputs, batch, a.t);
         }
     }else{
-
+        axpy_gpu(l.out_c, learning_rate/batch, l.bias_updates_gpu, 1, l.biases_gpu, 1);
+        scal_gpu(l.out_c, momentum, l.bias_updates_gpu, 1);
         //if(l.batch_normalize){
             //axpy_gpu(l.outputs, learning_rate/batch, l.scale_updates_gpu, 1, l.scales_gpu, 1);
             //scal_gpu(l.outputs, momentum, l.scale_updates_gpu, 1);

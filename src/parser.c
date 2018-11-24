@@ -1015,7 +1015,8 @@ void save_route_weights(layer l, FILE *fp)
         pull_route_layer(l);
     }
 #endif
-    fwrite(l.weights, sizeof(float), l.out_c, fp);
+	fwrite(l.biases, sizeof(float), l.out_c, fp);
+    fwrite(l.weights, sizeof(float), l.out_c*l.out_c, fp);
 }
 
 
@@ -1138,7 +1139,8 @@ void load_connected_weights(layer l, FILE *fp, int transpose)
 
 void load_route_weights(layer l, FILE *fp, int transpose)
 {
-    fread(l.weights, sizeof(float), l.out_c, fp);
+	fread(l.biases, sizeof(float), l.out_c, fp);
+	fread(l.weights, sizeof(float), l.out_c*l.out_c, fp);
     if(transpose){
         transpose_matrix(l.weights, l.out_c, l.out_c);
     }
